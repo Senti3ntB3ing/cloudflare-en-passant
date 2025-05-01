@@ -31,9 +31,6 @@ export class TwitchChat {
 
     notification(request) {
         let message = this.#getHmacMessage(request);
-        if(message == 0){
-            return 0
-        }
         let hmac = HMAC_PREFIX + this.#getHmac(this.#secret, message);
         if (this.#verifyMessage(hmac, req.headers[TWITCH_MESSAGE_SIGNATURE])) {
             let data = JSON.parse(request.body);
@@ -130,12 +127,9 @@ export class TwitchChat {
     }
 
     #getHmacMessage(request) {
-        if(request.headers.has(TWITCH_MESSAGE_ID)){
-           return (request.headers[TWITCH_MESSAGE_ID] +
+        return (request.headers[TWITCH_MESSAGE_ID] +
             request.headers[TWITCH_MESSAGE_TIMESTAMP] +
-            request.body); 
-        }
-        return 0
+            request.body);
     }
 
     #getHmac(secret, message) {
