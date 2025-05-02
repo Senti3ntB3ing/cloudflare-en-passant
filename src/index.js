@@ -1,5 +1,4 @@
 
-
 /**
  * Welcome to Cloudflare Workers! This is your first worker.
  *
@@ -10,14 +9,12 @@
  * Learn more at https://developers.cloudflare.com/workers/
  */
 //let chat = new TwitchChat;
-import { Database } from "../public/database";
 
 export default {
 	async fetch(request, env, ctx) {
-		const TWITCH_APP_ID = await Database.get("twitch_app_id");
-		const TWITCH_APP_SECRET = await Database.get("twitch_app_secret");
-		const TWITCH_REFRESH = await Database.get("twitch_refresh_token");
-		const TWITCH_OAUTH_BOT = await Database.get("twitch_oauth_bot");
+
+		const FIREBASE_SECRET = env.FIREBASE_SECRET;
+		const FIREBASE_URL = env.FIREBASE_URL;
 
 		const TWITCH_MESSAGE_ID = 'Twitch-Eventsub-Message-Id'.toLowerCase();
 		const TWITCH_MESSAGE_TIMESTAMP = 'Twitch-Eventsub-Message-Timestamp'.toLowerCase();
@@ -33,6 +30,54 @@ export default {
 
 		const crypto = require('crypto');
 		const subTypes = 'channel.chat.message;channel.chat.notification;channel.shared_chat.begin;channel.shared_chat.update;channel.shared_chat.end;'
+
+		class Database {
+
+			static async get(key) {
+				return await fetch(FIREBASE_URL + encodeURIComponent(key) + "/.json?auth=" + FIREBASE_SECRET)
+					.then(e => e.text())
+					.then(value => {
+						if (!value) return null;
+						try { value = JSON.parse(value); }
+						catch { return null; }
+						if (value === undefined || value === null || value.error !== undefined) return null;
+						return value;
+					});
+			}
+
+			static async set(key, value) {
+				await fetch(FIREBASE_URL + encodeURIComponent(key) + "/.json?auth=" + FIREBASE_SECRET, {
+					method: "PUT",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify(value),
+				});
+			}
+
+			static async delete(key) {
+				await fetch(
+					FIREBASE_URL + encodeURIComponent(key) + "/.json?auth=" + FIREBASE_SECRET,
+					{ method: "DELETE" }
+				);
+			}
+
+			static async dictionary() {
+				return await fetch(`${FIREBASE_URL}/.json?auth=${FIREBASE_SECRET}`)
+					.then(e => e.text())
+					.then(value => {
+						if (!value) return null;
+						try { value = JSON.parse(value); }
+						catch { return null; }
+						if (value === undefined || value === null || value.error !== undefined) return null;
+						return value;
+					});
+			}
+
+		}
+
+		const TWITCH_APP_ID = await Database.get("twitch_app_id");
+		const TWITCH_APP_SECRET = await Database.get("twitch_app_secret");
+		const TWITCH_REFRESH = await Database.get("twitch_refresh_token");
+		const TWITCH_OAUTH_BOT = await Database.get("twitch_oauth_bot");
 
 		class TwitchChat {
 			// Handle Callbacks
@@ -161,7 +206,6 @@ export default {
 				return crypto.timingSafeEqual(Buffer.from(hmac), Buffer.from(verifySignature));
 			}
 		}
-
 
 		const url = new URL(request.url);
 		switch (url.pathname) {
