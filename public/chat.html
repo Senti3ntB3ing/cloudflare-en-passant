@@ -1,11 +1,30 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Twitch Chat</title>
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
 </head>
+
 <body>
-    
+    <table>
+        <tbody id="chat"></tbody>
+    </table>
 </body>
+<script>
+    // setInterval(async function () {
+    //     // Need to do SSE eventSource here https://developer.mozilla.org/en-US/docs/Web/API/EventSource/EventSource
+    //     let data = await fetch('/data');
+    //     console.log("testing");
+    //     let dJson = await JSON.parse(data.body);
+    //     //console.log(dJson.text)
+    // }, 10000);
+    $.get('/data', (data) => {
+        let jsonData = JSON.parse(data);
+        console.log(jsonData);
+    });
+</script>
+
 </html>

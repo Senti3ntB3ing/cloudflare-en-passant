@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+	<meta charset="UTF-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+	<title>Subscribe</title>
+	<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
+</head>
+
+<body>
+	<h1 id="heading"></h1>
+	<button id="subscribe" type="button">Subscribe</button>
+	<output id="sub_id" for="subscribe"></output>
+	<button id="delete" type="button">Delete All</button>
+	<output id="del_id" for="delete"></output>
+	<div>HELLO TEST WORL BLAH BLAH</div>
+	<table>
+		<tbody id="sub_list"></tbody>
+	</table>
+	<table>
+		<tbody id="sub_list2"></tbody>
+	</table>
+
+
+	<script defer>
+		let list;
+		//jquery test
+		let list2;
+		
+		$("#subscribe").click(() => {
+			$.get('/getSubs', (data, status) => {
+				let jsonData = JSON.parse(data);
+				document.getElementById("sub_list2").innerHTML = jsonData.data.map(
+					(m, i) => {
+						return `<tr>
+						<td> ${i}</td>
+						<td> ${m.id}</td>
+						<td> ${m.status}</td>
+						<td> ${m.type}</td>
+					</tr>`
+					}).join('\n');
+			})
+		})
+		// end
+		// fetch('/getSubs')
+		// 	.then((resp) => resp.json())
+		// 	.then((json) => {
+		// 		list = json.data;
+		// 		document.getElementById("sub_list").innerHTML = list.map(
+		// 			(m, i) => {
+		// 				return `<tr>
+		// 				<td> ${i}</td>
+		// 				<td> ${m.id}</td>
+		// 				<td> ${m.status}</td>
+		// 				<td> ${m.type}</td>
+		// 			</tr>`
+		// 			}).join('\n');
+		// 	});
+		const delButton = document.getElementById("delete");
+		delButton.addEventListener("click", () => {
+			fetch('/delete')
+				.then(window.location.reload());
+		});
+		const subButton = document.getElementById("subscribe");
+		// subButton.addEventListener("click", () => {
+		// 	fetch('/init');
+		// });
+	</script>
+</body>
+
+</html>
