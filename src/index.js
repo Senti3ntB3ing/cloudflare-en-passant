@@ -8,31 +8,40 @@
  *
  * Learn more at https://developers.cloudflare.com/workers/
  */
-//let chat = new TwitchChat;
-
-const fs = require('fs');
 
 import subHTML from '../public/subscribe.html';
 import chatHTML from '../public/chat.html';
 
+const TWITCH_MESSAGE_ID = 'Twitch-Eventsub-Message-Id'.toLowerCase();
+const TWITCH_MESSAGE_TIMESTAMP = 'Twitch-Eventsub-Message-Timestamp'.toLowerCase();
+const TWITCH_MESSAGE_SIGNATURE = 'Twitch-Eventsub-Message-Signature'.toLowerCase();
+const TWITCH_MESSAGE_TYPE = 'Twitch-Eventsub-Message-Type'.toLowerCase();
+const TWITCH_SUB_TYPE = 'Twitch-Eventsub-Subscription-Type'.toLowerCase();
+
+const MESSAGE_TYPE_VERIFICATION = 'webhook_callback_verification';
+const MESSAGE_TYPE_NOTIFICATION = 'notification';
+const MESSAGE_TYPE_REVOCATION = 'revocation';
+const HMAC_PREFIX = 'sha256=';
+
+const subURL = 'https://api.twitch.tv/helix/eventsub/subscriptions';
+const chatURL = 'https://api.twitch.tv/helix/chat/messages';
+
+const crypto = require('crypto');
+const subTypes = 'channel.chat.message;channel.chat.notification;channel.shared_chat.begin;channel.shared_chat.update;channel.shared_chat.end;'
+
 export default {
 	async fetch(request, env, ctx) {
-		const TWITCH_MESSAGE_ID = 'Twitch-Eventsub-Message-Id'.toLowerCase();
-		const TWITCH_MESSAGE_TIMESTAMP = 'Twitch-Eventsub-Message-Timestamp'.toLowerCase();
-		const TWITCH_MESSAGE_SIGNATURE = 'Twitch-Eventsub-Message-Signature'.toLowerCase();
-		const TWITCH_MESSAGE_TYPE = 'Twitch-Eventsub-Message-Type'.toLowerCase();
-		const TWITCH_SUB_TYPE = 'Twitch-Eventsub-Subscription-Type'.toLowerCase();
 
-		const MESSAGE_TYPE_VERIFICATION = 'webhook_callback_verification';
-		const MESSAGE_TYPE_NOTIFICATION = 'notification';
-		const MESSAGE_TYPE_REVOCATION = 'revocation';
-		const HMAC_PREFIX = 'sha256=';
-
-		const subURL = 'https://api.twitch.tv/helix/eventsub/subscriptions';
-		const chatURL = 'https://api.twitch.tv/helix/chat/messages';
-
-		const crypto = require('crypto');
-		const subTypes = 'channel.chat.message;channel.chat.notification;channel.shared_chat.begin;channel.shared_chat.update;channel.shared_chat.end;'
+		let devlogging = true; // toggle false or true to enable/disable log statements.
+		
+		function devLog(msg, error){
+			if(!devlogging) return;
+			if(error){
+				console.error(msg);
+			} else {
+				console.log(msg)
+			}
+		}
 
 		class Database {
 
@@ -363,6 +372,7 @@ export default {
 			}
 
 			async handler(message) {
+				devLog("Inside Handler with " + message);
 				if (message === undefined) return;
 				// for (const heart in this.hearts) if (message.startsWith(heart)) {
 				// 	this.#commands.announce(message.substring(1).trim(), hearts[heart]); // create an announce function to announce the message #TODO
@@ -372,6 +382,7 @@ export default {
 			};
 
 			async notification(request) {
+				devLog("notification recieved.");
 				let message = this.#getHmacMessage(request);
 				if (message == 0) {
 					console.error("non hmac message");
@@ -389,7 +400,7 @@ export default {
 								case "channel.chat.message":
 									let messageText = data.event.message.text;
 									let badges = data.event.badges;
-
+									devLog(messageText);
 									if (!messageText.startsWith('!')) return;
 
 									const RRSLV = new RegExp(`![A-Za-z0-9_\\.]+`, 'i');
@@ -536,15 +547,34 @@ export default {
 
 			async validate() {
 				try {
+					devLog("Validating OAUTH");
+					// Validate OAUTH Token
 					TWITCH_OAUTH_BOT = await Database.get("twitch_oauth_bot");
+					TWITCH_APP_TOKEN = await Database.get("twitch_app_token");
 					let url = "https://id.twitch.tv/oauth2/validate";
 
 					const req = await fetch(url, {
 						headers: {
+							"Authorization": "OAuth " + TWITCH_OAUTH_BOT
+						}
+					});
+					devLog(await req.text());
+
+					const reqApp = await fetch(url, {
+						headers: {
 							"Authorization": "OAuth " + TWITCH_APP_TOKEN
 						}
 					});
-					return req.status != 401;
+					devLog(await reqApp.text());
+					if(req.status != 401 && reqApp.status != 401){
+						devLog("validate success on both");
+						return 200
+					} else {
+						devLog("validate unsuccessful, refreshing");
+						await this.appToken();
+						await this.twitchRefresh();
+					}
+					
 				} catch (e) {
 					console.log(e);
 					console.error("Token Validation failed!");
@@ -552,6 +582,7 @@ export default {
 			}
 
 			async twitchRefresh() {
+				devLog("twitch refresh");
 				try {
 					TWITCH_APP_ID = await Database.get("twitch_app_id");
 					TWITCH_APP_SECRET = await Database.get("twitch_app_secret");
@@ -576,17 +607,22 @@ export default {
 						},
 						body: formBody
 					});
+					devLog(response.status);
 					if (response.status != 200) {
 						console.error("Failed to refresh twitch token");
 						return;
 					}
 					const data = await response.json();
+					devLog("twitchRefresh response..");
+					devLog(data);
 					if (!("scope" in data) || !("access_token" in data) || !("refresh_token" in data)) {
 						console.error("Refresh twitch token not present");
 						return;
 					}
 					await Database.set("twitch_oauth_bot", data.access_token);
+					TWITCH_OAUTH_BOT = data.access_token;
 					await Database.set("twitch_refresh_token", data.refresh_token);
+					TWITCH_REFRESH = data.refresh_token;
 					return data.access_token;
 				} catch (e) {
 					console.log(e);
@@ -594,7 +630,8 @@ export default {
 				}
 			}
 
-			async appToken() {
+			async appToken() { // No way to refresh client credential tokens - validate and refresh on expiry?
+				devLog("app token refreshing..");
 				try {
 					const details = {
 						"client_id": TWITCH_APP_ID,
@@ -618,8 +655,10 @@ export default {
 					let url = "https://id.twitch.tv/oauth2/token";
 					let response = await fetch(url, payload);
 					let json = await response.json();
-
-					await Database.set("twitch_access_token", json.access_token);
+					devLog("app response");
+					devLog(json);
+					await Database.set("twitch_app_token", json.access_token);
+					TWITCH_APP_TOKEN = json.access_token;
 				} catch (e) {
 					console.log(e);
 					console.error("Failed to retrieve App Token");
@@ -627,11 +666,12 @@ export default {
 			}
 
 			async chat(message) {
+				devLog("this.chat..");
 				let payload = {
 					method: "POST",
 					headers: {
 						"Content-Type": "application/json",
-						"Authorization": "Bearer " + TWITCH_APP_TOKEN,
+						"Authorization": "Bearer " + TWITCH_APP_TOKEN, // TWITCH_APP_TOKEN (but its invalid?? idk why)
 						"Client-Id": TWITCH_APP_ID
 					},
 					body: JSON.stringify({
@@ -642,7 +682,9 @@ export default {
 					})
 				};
 				let url = "https://api.twitch.tv/helix/chat/messages";
-				await fetch(url, payload);
+				let response = await fetch(url, payload);
+				let body = await response.text();
+				devLog(body);
 			}
 
 			#getSecret() {
@@ -1241,6 +1283,7 @@ export default {
 		let chat = new TwitchChat;
 		let chatData = {};
 		let msgCount = 0;
+		//await chat.validate(); // should be replaced with a chron alarm (validate every hour!)
 
 		switch (request.method) {
 			case "POST":
@@ -1252,7 +1295,9 @@ export default {
 					case '/refresh':
 						// await chat.validate();  This is here because we ~should~ be validating every hour or so, but if we're refreshing that soon then whats the point?
 						// Could alternatively check for the expiration time of the token and only call chat.twitchRefresh() upon reaching a certain threshold ~ < 1hr. #TODO
-						await chat.twitchRefresh();
+
+						// has a scheduled chron event (see below) so ideally it should validate every hour now.
+						await chat.validate();
 						return new Response('Refresh!');
 					case '/queue':
 						return new Response('Queue!');
@@ -1334,7 +1379,14 @@ export default {
 						// which can be determined by having the client send those on the request
 						// only send the updated messages
 
-						return new Response(JSON.stringify(chatData))
+						return new Response(JSON.stringify(chatData));
+					case '/refresh':
+						// await chat.validate();  This is here because we ~should~ be validating every hour or so, but if we're refreshing that soon then whats the point?
+						// Could alternatively check for the expiration time of the token and only call chat.twitchRefresh() upon reaching a certain threshold ~ < 1hr. #TODO
+
+						// has a scheduled chron event (see below) so ideally it should validate every hour now.
+						await chat.validate();
+						return new Response('Refresh!');
 					default:
 						return new Response('Not Found', { status: 404 });
 				}
